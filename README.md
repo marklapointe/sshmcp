@@ -43,6 +43,19 @@ Built with **FastAPI** and **Tailwind CSS**. It uses **Server-Sent Events (SSE)*
     make install
     ```
 
+3.  **Configuration**:
+    The agent can be configured via environment variables or a `.env` file. This allows the LLM to use your SSH credentials automatically without you having to specify them in every query.
+    ```bash
+    cp .env.example .env
+    # Edit .env with your credentials
+    ```
+    Supported variables:
+    *   `SSH_HOST`: Default remote host.
+    *   `SSH_USERNAME`: Default SSH username.
+    *   `SSH_PASSWORD`: Default SSH password.
+    *   `SSH_KEY_FILENAME`: Path to your private SSH key.
+    *   `SSH_PORT`: Default SSH port (defaults to 22).
+
 ---
 
 ## 🏃 Running the Project
@@ -53,10 +66,36 @@ make run-ui
 ```
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
+#### Web UI Host Manager
+The Web UI includes a built-in Host Manager that allows you to:
+*   **Save multiple SSH configurations**: Store hostname, port, username, and password/key for different servers.
+*   **Switch contexts instantly**: Use the dropdown in the chat interface to select which host the agent should connect to.
+*   **Persistent Storage**: Hosts are saved locally in `hosts.json` in the project root.
+
 ### Using the CLI Agent
 ```bash
 make run-agent QUERY="Check the disk usage on localhost"
 ```
+
+---
+
+## 📝 Usage Examples
+
+### 1. System Monitoring
+**Query**: "Check the CPU and memory usage on my production server"
+**Agent Action**: Executes `top -b -n 1` or `free -m` on the remote host and summarizes the output.
+
+### 2. File Management
+**Query**: "Find all logs in /var/log larger than 10MB and tell me their names"
+**Agent Action**: Executes `find /var/log -type f -size +10M` and reports the results.
+
+### 3. Log Analysis
+**Query**: "Search for 'Error' in /var/log/syslog and show me the last 5 occurrences"
+**Agent Action**: Executes `grep "Error" /var/log/syslog | tail -n 5`.
+
+### 4. Remote Deployment (via tools)
+**Query**: "Upload my local config.json to /tmp/config.json on the server"
+**Agent Action**: Uses the `ssh_upload` tool to transfer the file via SFTP.
 
 ### Using IntelliJ / PyCharm
 We have provided pre-configured run configurations in `.idea/runConfigurations/`:

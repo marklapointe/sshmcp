@@ -19,7 +19,7 @@ class SSHMCPAgent:
     """
     The orchestrator that connects the LLM Client to the MCP Server.
     """
-    def __init__(self, model: str = "llama3.2", format: str = "auto", log_callback=None):
+    def __init__(self, model: str = "llama3.2", format: str = "auto", log_callback=None, env_overrides: Dict[str, str] = None):
         self.llm = OllamaClient(
             model=model, 
             format=ToolCallingFormat(format)
@@ -28,10 +28,14 @@ class SSHMCPAgent:
         self.log_callback = log_callback
         # Why we use StdioServerParameters:
         # This tells the client how to launch and communicate with our MCP server.
+        env = os.environ.copy()
+        if env_overrides:
+            env.update(env_overrides)
+            
         self.server_params = StdioServerParameters(
             command=sys.executable,
             args=["-m", "ssh_mcp_agent.server"],
-            env=os.environ.copy()
+            env=env
         )
 
     async def run(self, query: str):
