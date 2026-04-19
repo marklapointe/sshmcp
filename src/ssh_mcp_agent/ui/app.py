@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from ..agent import SSHMCPAgent
 from ..llm.client import ToolCallingFormat
-from .hosts_manager import HostsManager, HostConfig
+from ..hosts import HostsManager, HostConfig
 
 class AgentState:
     def __init__(self):

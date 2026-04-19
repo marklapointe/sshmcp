@@ -14,9 +14,13 @@ from mcp.types import (
 from pydantic import BaseModel, Field
 
 from .tools.ssh import SSHClient, SSHConfig, SSHConfig as SSHConfigData
+from .hosts import HostsManager, HostConfig
 
 # Load environment variables from .env file if it exists
 load_dotenv()
+
+# Initialize Hosts Manager
+hosts_manager = HostsManager()
 
 # Why we are using a Server class:
 # The MCP Server acts as a bridge between the LLM and the local/remote tools.
@@ -25,21 +29,16 @@ app = Server("ssh-mcp-server")
 
 # Define input schemas for our tools using Pydantic for validation.
 class SSHExecuteArgs(BaseModel):
-    host: Optional[str] = Field(None, description="Remote host address (defaults to SSH_HOST env var)")
-    username: Optional[str] = Field(None, description="SSH username (defaults to SSH_USERNAME env var)")
+    host: str = Field(..., description="Remote host identifier (ID, Name, or IP) configured in the system")
     command: str = Field(..., description="Command to execute")
-    password: Optional[str] = Field(None, description="SSH password (optional, defaults to SSH_PASSWORD env var)")
-    key_filename: Optional[str] = Field(None, description="Path to SSH private key file (optional, defaults to SSH_KEY_FILENAME env var)")
-    port: Optional[int] = Field(None, description="SSH port (defaults to SSH_PORT env var or 22)")
 
 class SSHTransferArgs(BaseModel):
-    host: Optional[str] = Field(None, description="Remote host address (defaults to SSH_HOST env var)")
-    username: Optional[str] = Field(None, description="SSH username (defaults to SSH_USERNAME env var)")
+    host: str = Field(..., description="Remote host identifier (ID, Name, or IP) configured in the system")
     local_path: str = Field(..., description="Path on local machine")
     remote_path: str = Field(..., description="Path on remote machine")
-    password: Optional[str] = Field(None, description="SSH password (optional, defaults to SSH_PASSWORD env var)")
-    key_filename: Optional[str] = Field(None, description="Path to SSH private key file (optional, defaults to SSH_KEY_FILENAME env var)")
-    port: Optional[int] = Field(None, description="SSH port (defaults to SSH_PORT env var or 22)")
+
+class SSHCheckArgs(BaseModel):
+    host: str = Field(..., description="Remote host identifier to check configuration for")
 
 # Tool Registration
 # -----------------
@@ -51,20 +50,51 @@ async def list_tools() -> List[Tool]:
     return [
         Tool(
             name="ssh_execute",
-            description="Execute a command on a remote system via SSH",
+            description="Execute a command on a remote system via SSH using pre-configured credentials",
             inputSchema=SSHExecuteArgs.model_json_schema(),
         ),
         Tool(
             name="ssh_upload",
-            description="Upload a local file to a remote system via SFTP",
+            description="Upload a local file to a remote system via SFTP using pre-configured credentials",
             inputSchema=SSHTransferArgs.model_json_schema(),
         ),
         Tool(
             name="ssh_download",
-            description="Download a remote file to the local system via SFTP",
+            description="Download a remote file to the local system via SFTP using pre-configured credentials",
             inputSchema=SSHTransferArgs.model_json_schema(),
         ),
+        Tool(
+            name="ssh_check_config",
+            description="Check if a host is pre-configured with necessary information",
+            inputSchema=SSHCheckArgs.model_json_schema(),
+        ),
     ]
+
+def get_ssh_config(identifier: str) -> SSHConfig:
+    """Look up SSH configuration for a given host identifier."""
+    host_config = hosts_manager.get_by_name_or_host(identifier)
+    
+    if host_config:
+        return SSHConfig(
+            host=host_config.host,
+            username=host_config.username,
+            password=host_config.password,
+            key_filename=host_config.key_filename,
+            port=host_config.port
+        )
+    
+    # Fallback to env vars ONLY if the identifier matches the env SSH_HOST
+    env_host = os.getenv("SSH_HOST")
+    if env_host and (identifier == env_host or identifier == "default"):
+        return SSHConfig(
+            host=env_host,
+            username=os.getenv("SSH_USERNAME", ""),
+            password=os.getenv("SSH_PASSWORD"),
+            key_filename=os.getenv("SSH_KEY_FILENAME"),
+            port=int(os.getenv("SSH_PORT", "22"))
+        )
+        
+    raise ValueError(f"No configuration found for host '{identifier}'. Please configure it in the Host Manager first.")
 
 @app.call_tool()
 async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
@@ -73,26 +103,7 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
     try:
         if name == "ssh_execute":
             args = SSHExecuteArgs(**arguments)
-            
-            host = args.host or os.getenv("SSH_HOST")
-            username = args.username or os.getenv("SSH_USERNAME")
-            password = args.password or os.getenv("SSH_PASSWORD")
-            key_filename = args.key_filename or os.getenv("SSH_KEY_FILENAME")
-            port_str = os.getenv("SSH_PORT", "22")
-            port = args.port or (int(port_str) if port_str.isdigit() else 22)
-
-            if not host:
-                raise ValueError("Host must be provided or set via SSH_HOST environment variable")
-            if not username:
-                raise ValueError("Username must be provided or set via SSH_USERNAME environment variable")
-
-            config = SSHConfig(
-                host=host,
-                username=username,
-                password=password,
-                key_filename=key_filename,
-                port=port
-            )
+            config = get_ssh_config(args.host)
             client = SSHClient(config)
             try:
                 status, stdout, stderr = client.execute_command(args.command)
@@ -103,26 +114,7 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
 
         elif name == "ssh_upload":
             args = SSHTransferArgs(**arguments)
-            
-            host = args.host or os.getenv("SSH_HOST")
-            username = args.username or os.getenv("SSH_USERNAME")
-            password = args.password or os.getenv("SSH_PASSWORD")
-            key_filename = args.key_filename or os.getenv("SSH_KEY_FILENAME")
-            port_str = os.getenv("SSH_PORT", "22")
-            port = args.port or (int(port_str) if port_str.isdigit() else 22)
-
-            if not host:
-                raise ValueError("Host must be provided or set via SSH_HOST environment variable")
-            if not username:
-                raise ValueError("Username must be provided or set via SSH_USERNAME environment variable")
-
-            config = SSHConfig(
-                host=host,
-                username=username,
-                password=password,
-                key_filename=key_filename,
-                port=port
-            )
+            config = get_ssh_config(args.host)
             client = SSHClient(config)
             try:
                 client.upload_file(args.local_path, args.remote_path)
@@ -132,32 +124,22 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
 
         elif name == "ssh_download":
             args = SSHTransferArgs(**arguments)
-            
-            host = args.host or os.getenv("SSH_HOST")
-            username = args.username or os.getenv("SSH_USERNAME")
-            password = args.password or os.getenv("SSH_PASSWORD")
-            key_filename = args.key_filename or os.getenv("SSH_KEY_FILENAME")
-            port_str = os.getenv("SSH_PORT", "22")
-            port = args.port or (int(port_str) if port_str.isdigit() else 22)
-
-            if not host:
-                raise ValueError("Host must be provided or set via SSH_HOST environment variable")
-            if not username:
-                raise ValueError("Username must be provided or set via SSH_USERNAME environment variable")
-
-            config = SSHConfig(
-                host=host,
-                username=username,
-                password=password,
-                key_filename=key_filename,
-                port=port
-            )
+            config = get_ssh_config(args.host)
             client = SSHClient(config)
             try:
                 client.download_file(args.remote_path, args.local_path)
                 return [TextContent(type="text", text=f"Successfully downloaded {args.remote_path} to {args.local_path}")]
             finally:
                 client.close()
+        
+        elif name == "ssh_check_config":
+            args = SSHCheckArgs(**arguments)
+            exists = hosts_manager.has_host_info(args.host)
+            if exists:
+                host_info = hosts_manager.get_by_name_or_host(args.host)
+                return [TextContent(type="text", text=f"Host '{args.host}' is configured with username '{host_info.username}'")]
+            else:
+                return [TextContent(type="text", text=f"Host '{args.host}' is NOT configured. Please provide its details in the Host Manager.")]
 
         else:
             raise ValueError(f"Unknown tool: {name}")

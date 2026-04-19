@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Protocol
 from enum import Enum
@@ -31,11 +32,13 @@ class OllamaClient:
         self, 
         model: str = "llama3.2", 
         format: ToolCallingFormat = ToolCallingFormat.AUTO,
-        host: str = "http://localhost:11434"
+        host: Optional[str] = None
     ):
         self.model = model
         self.format = format
-        self.client = ollama.AsyncClient(host=host)
+        # Use provided host, or OLLAMA_HOST env var, or default to localhost
+        actual_host = host or os.getenv("OLLAMA_HOST") or "http://localhost:11434"
+        self.client = ollama.AsyncClient(host=actual_host)
         self._detected_format: Optional[ToolCallingFormat] = None
 
     async def _detect_format(self) -> ToolCallingFormat:

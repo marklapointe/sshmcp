@@ -54,7 +54,7 @@ graph TD
 2.  **Tool Discovery**: The Agent connects to the SSH MCP Server and discovers available capabilities (`ssh_exec`, `ssh_upload`, etc.).
 3.  **Context Assembly**: The Agent sends the user query and the tool schemas to Ollama.
 4.  **LLM Decision**: Ollama analyzes the request and determines which tool(s) to call and with what arguments.
-5.  **Secure Execution**: The Agent routes the tool call to the MCP Server, which performs the actual SSH operation using the credentials provided in the `.env` or Host Manager.
+*   **Secure Execution**: The Agent routes the tool call to the MCP Server, which performs the actual SSH operation using the credentials looked up from the Host Manager. The LLM only sees host identifiers, never sensitive credentials.
 6.  **Streaming Feedback**: Every step of the process is streamed back to the Web UI via SSE, allowing the user to see the internal "thought process" of the AI.
 
 ---
@@ -171,6 +171,13 @@ MCP uses standard JSON-RPC 2.0 error codes:
 *   `-32002`: Server not initialized.
 *   `100`: Tool call error (specific to MCP).
 
+### 4. Secure Host Management
+To ensure security and trust, the LLM cannot dictate credentials (username/password/keys) for a connection. Instead:
+1.  **Centralized Configuration**: Hosts must be pre-configured in `hosts.json` (Local, Home, or System-wide `/etc/` directories).
+2.  **Identifier-based Access**: The LLM tools only accept a `host` identifier (ID, Name, or IP).
+3.  **Automatic Lookup**: The MCP server looks up the corresponding credentials from the secure `HostsManager`.
+4.  **Verification Tool**: The `ssh_check_config` tool allows the LLM to verify if a host is ready for connection before attempting operations.
+
 ---
 
 ## 🛠️ Detailed Installation & Infrastructure Setup
@@ -247,19 +254,37 @@ Follow these steps to set up the Python environment and install the SSH MCP Agen
     ```
     *This will install `mcp`, `paramiko`, `ollama`, `fastapi`, and several testing utilities.*
 
-### 4. Configuration & Environment Variables
+### 4. Configuration & Host Management
 
-The agent can be configured via a `.env` file for persistent, automated connections.
+The agent uses a centralized `HostsManager` to handle credentials securely.
 
-1.  **Create from Example**:
-    ```bash
-    cp .env.example .env
-    ```
+#### A. Configuration Paths
+The agent looks for `hosts.json` in the following order:
+1.  **Local**: `./hosts.json`
+2.  **User Home**: `~/.ssh-mcp/hosts.json`
+3.  **System-wide**:
+    *   **Linux**: `/etc/ssh-mcp/hosts.json`
+    *   **FreeBSD**: `/usr/local/etc/ssh-mcp/hosts.json` or `/etc/ssh-mcp/hosts.json`
+    *   **macOS**: `/etc/ssh-mcp/hosts.json` or `/Library/Application Support/ssh-mcp/hosts.json`
 
-2.  **Edit the Configuration**:
-    Open `.env` in your preferred editor and fill in your default SSH targets:
+#### B. Host JSON Format
+```json
+[
+  {
+    "id": "prod-server",
+    "name": "Production Server",
+    "host": "192.168.1.100",
+    "username": "admin",
+    "password": "secure-password",
+    "port": 22
+  }
+]
+```
 
-    | Variable | Description | Example |
+#### C. Environment Variable Fallback
+If a host is not found in `hosts.json`, the server can fallback to these variables in `.env` if the requested host matches `SSH_HOST`:
+
+| Variable | Description | Example |
     | :--- | :--- | :--- |
     | `SSH_HOST` | Remote server IP or hostname. | `192.168.1.50` |
     | `SSH_USERNAME` | SSH login username. | `ubuntu` |
