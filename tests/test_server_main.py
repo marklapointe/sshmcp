@@ -8,5 +8,6 @@ async def test_server_main():
     with patch("ssh_mcp_agent.server.stdio_server") as mock_stdio:
         mock_stdio.return_value.__aenter__.return_value = (MagicMock(), MagicMock())
         with patch("ssh_mcp_agent.server.app.run") as mock_run:
-            await main()
-            mock_run.assert_called_once()
+            with patch("sys.argv", ["server.py"]):
+                await main()
+                mock_run.assert_called_once()

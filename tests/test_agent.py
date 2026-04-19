@@ -67,6 +67,6 @@ async def test_agent_main():
         import sys
         with patch.object(sys, 'argv', ['agent.py', 'hello', '--model', 'm1', '--format', 'json']):
             await main()
-            
-        mock_agent_cls.assert_called_once_with(model='m1', format='json')
+    
+        mock_agent_cls.assert_called_once_with(model='m1', format='json', config_path=None)
         mock_agent.run.assert_called_once_with('hello')

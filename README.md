@@ -171,12 +171,15 @@ MCP uses standard JSON-RPC 2.0 error codes:
 *   `-32002`: Server not initialized.
 *   `100`: Tool call error (specific to MCP).
 
-### 4. Secure Host Management
-To ensure security and trust, the LLM cannot dictate credentials (username/password/keys) for a connection. Instead:
-1.  **Centralized Configuration**: Hosts must be pre-configured in `hosts.json` (Local, Home, or System-wide `/etc/` directories).
-2.  **Identifier-based Access**: The LLM tools only accept a `host` identifier (ID, Name, or IP).
-3.  **Automatic Lookup**: The MCP server looks up the corresponding credentials from the secure `HostsManager`.
-4.  **Verification Tool**: The `ssh_check_config` tool allows the LLM to verify if a host is ready for connection before attempting operations.
+### 4. Database-Backed Host Management & Session Vault
+To ensure scalability and security:
+1.  **Multiple DB Backends**: The `HostsManager` uses SQLAlchemy to support **SQLite** (default) and **MariaDB/MySQL**.
+2.  **No Clear-text Secrets**: The system is designed to NEVER store passwords in the database or on disk.
+3.  **In-Memory Session Vault**: We use a dedicated, in-memory vault to store credentials for the duration of your web session.
+4.  **Auto-Migration**: On first run, the system automatically migrates any existing `hosts.json` file into your configured database.
+5.  **Isolated Credential Prompting**: When the agent requires a password, the Web UI provides an isolated prompt.
+6.  **Identifier-based Access**: The LLM only interacts with host identifiers. It never sees or dictates sensitive credentials.
+7.  **Verification Tool**: The `ssh_check_config` tool allows the LLM to verify if a host is ready for connection before attempting operations.
 
 ---
 
@@ -189,6 +192,7 @@ This section provides a comprehensive guide to setting up the SSH MCP Agent ecos
 To ensure a smooth experience, your environment should meet the following criteria:
 
 *   **Operating System**: 
+    *   **FreeBSD**: 13.0, 14.0, 15, and 16 (Primary target, fully supported).
     *   **Linux**: Ubuntu 22.04+ (recommended), Debian, Fedora, or Arch.
     *   **macOS**: 12.0 (Monterey) or newer.
     *   **Windows**: Windows 10/11 with **WSL2** (Ubuntu 22.04+ on WSL2 is highly recommended).
@@ -254,43 +258,38 @@ Follow these steps to set up the Python environment and install the SSH MCP Agen
     ```
     *This will install `mcp`, `paramiko`, `ollama`, `fastapi`, and several testing utilities.*
 
-### 4. Configuration & Host Management
+### 4. Configuration & Database Setup
 
-The agent uses a centralized `HostsManager` to handle credentials securely.
+The agent uses a centralized configuration system to handle global settings and database connections.
 
-#### A. Configuration Paths
-The agent looks for `hosts.json` in the following order:
-1.  **Local**: `./hosts.json`
-2.  **User Home**: `~/.ssh-mcp/hosts.json`
-3.  **System-wide**:
-    *   **Linux**: `/etc/ssh-mcp/hosts.json`
-    *   **FreeBSD**: `/usr/local/etc/ssh-mcp/hosts.json` or `/etc/ssh-mcp/hosts.json`
-    *   **macOS**: `/etc/ssh-mcp/hosts.json` or `/Library/Application Support/ssh-mcp/hosts.json`
+#### A. Configuration Search Paths
+The agent looks for `sshagent.conf` in the following order:
+1.  **CLI**: Provided via the `--config` argument.
+2.  **Project Data**: `./data/sshagent.conf` (Recommended for local runs).
+3.  **User Local**: `${HOME}/.local/etc/cloudbsd/sshagent/sshagent.conf` or `${HOME}/.local/etc/ssh-mcp/sshagent.conf`
+4.  **System-wide**:
+    *   **Linux**: `/etc/cloudbsd/sshagent/sshagent.conf` or `/etc/ssh-mcp/sshagent.conf`
+    *   **FreeBSD**: `/usr/local/etc/cloudbsd/sshagent/sshagent.conf`, `/usr/local/etc/ssh-mcp/sshagent.conf`, `/etc/cloudbsd/sshagent/sshagent.conf`, or `/etc/ssh-mcp/sshagent.conf`
+    *   **macOS**: `/etc/cloudbsd/sshagent/sshagent.conf`, `/etc/ssh-mcp/sshagent.conf`, `/Library/Application Support/cloudbsd/sshagent/sshagent.conf`, or `/Library/Application Support/ssh-mcp/sshagent.conf`
+5.  **Fallbacks**: `~/.ssh-mcp/sshagent.conf` or `./sshagent.conf`
 
-#### B. Host JSON Format
+#### B. Example Config (`sshagent.conf`)
 ```json
-[
-  {
-    "id": "prod-server",
-    "name": "Production Server",
-    "host": "192.168.1.100",
-    "username": "admin",
-    "password": "secure-password",
-    "port": 22
-  }
-]
+{
+  "ollama_host": "http://localhost:11434",
+  "ollama_model": "llama3.2",
+  "database_url": "sqlite:///data/hosts.db"
+}
 ```
 
-#### C. Environment Variable Fallback
-If a host is not found in `hosts.json`, the server can fallback to these variables in `.env` if the requested host matches `SSH_HOST`:
+*   **SQLite (Default)**: Use `sqlite:///data/hosts.db`. The `data/` directory will be created automatically.
+*   **MariaDB/MySQL**: Use `mysql+pymysql://user:password@host/dbname`. 
+*   **External Example**: See `sshagent.conf.example` for a MariaDB/MySQL template.
 
-| Variable | Description | Example |
-    | :--- | :--- | :--- |
-    | `SSH_HOST` | Remote server IP or hostname. | `192.168.1.50` |
-    | `SSH_USERNAME` | SSH login username. | `ubuntu` |
-    | `SSH_PASSWORD` | Password for authentication (if not using keys). | `your-password` |
-    | `SSH_KEY_FILENAME`| Absolute path to your private key. | `/home/user/.ssh/id_rsa` |
-    | `SSH_PORT` | SSH service port. | `22` |
+#### C. Database Security
+*   **Data Directory**: The `./data/` directory is automatically excluded from version control via `.gitignore`.
+*   **Credentials**: Sensitive database URLs should be placed in the system-wide or user-local `sshagent.conf` and NOT committed to the repository.
+
 
 ### 5. Running the Infrastructure
 
@@ -318,7 +317,7 @@ make run-server
 ### 6. Troubleshooting
 
 *   **"Connection Refused" (Ollama)**: Ensure Ollama is running. If you are running Ollama in a container, you may need to set `OLLAMA_HOST=0.0.0.0` to allow external connections.
-*   **SSH Authentication Failure**: Verify that your public key is in the remote host's `authorized_keys` file. If using a password, ensure it is correct in `.env`.
+*   **SSH Authentication Failure**: Verify that your public key is in the remote host's `authorized_keys` file. If using a password, ensure it is correct in the Host Manager.
 *   **Tool Call Loop**: If the model keeps calling the same tool with the same arguments, it may be confused by the output. Try switching to a more capable model like `qwen2.5-coder:7b`.
 
 ---
@@ -338,7 +337,7 @@ make run-server
 **Agent Action**: Executes `grep "Error" /var/log/syslog | tail -n 5`.
 
 ### 4. Remote Deployment (via tools)
-**Query**: "Upload my local config.json to /tmp/config.json on the server"
+**Query**: "Upload my local sshagent.conf to /tmp/sshagent.conf on the server"
 **Agent Action**: Uses the `ssh_upload` tool to transfer the file via SFTP.
 
 ### Using IntelliJ / PyCharm

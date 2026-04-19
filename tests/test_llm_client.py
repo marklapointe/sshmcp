@@ -199,3 +199,36 @@ async def test_chat_invalid_format():
     client.format = "unsupported"
     with pytest.raises(NotImplementedError):
         await client.chat([], [])
+
+@pytest.mark.asyncio
+async def test_list_models():
+    with patch("ollama.AsyncClient") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        mock_client.list = AsyncMock()
+        
+        # Mock ListResponse
+        mock_response = MagicMock()
+        mock_model1 = MagicMock()
+        mock_model1.model = "m1"
+        mock_model2 = MagicMock()
+        mock_model2.model = "m2"
+        mock_response.models = [mock_model1, mock_model2]
+        
+        mock_client.list.return_value = mock_response
+        
+        client = OllamaClient(model="test")
+        models = await client.list_models()
+        
+        assert models == ["m1", "m2"]
+        mock_client.list.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_list_models_empty():
+    with patch("ollama.AsyncClient") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        mock_client.list = AsyncMock(side_effect=Exception("Failed"))
+        
+        client = OllamaClient(model="test")
+        models = await client.list_models()
+        
+        assert models == []

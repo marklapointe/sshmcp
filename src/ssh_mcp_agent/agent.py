@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import sys
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -12,6 +12,8 @@ from rich.live import Live
 from rich.markdown import Markdown
 
 from .llm.client import OllamaClient, ToolCallingFormat, LLMResponse
+from .config import ConfigManager
+from .hosts import HostsManager
 
 console = Console()
 
@@ -19,22 +21,43 @@ class SSHMCPAgent:
     """
     The orchestrator that connects the LLM Client to the MCP Server.
     """
-    def __init__(self, model: str = "llama3.2", format: str = "auto", log_callback=None, env_overrides: Dict[str, str] = None):
+    def __init__(self, model: Optional[str] = None, format: str = "auto", log_callback=None, env_overrides: Dict[str, str] = None, config_path: Optional[str] = None, system_message: Optional[str] = None, ollama_host: Optional[str] = None):
+        self.config_manager = ConfigManager(config_path)
+        self.hosts_manager = HostsManager(self.config_manager.settings.database_url, config_path)
+        
+        # Get default Ollama instance from database
+        default_ollama = self.hosts_manager.get_default_ollama_instance()
+        
+        # Priority for Ollama Host: 1. Argument, 2. DB Default, 3. Hardcoded Fallback
+        actual_host = ollama_host or (default_ollama.host if default_ollama else "http://localhost:11434")
+        
+        # Priority for Model: 1. Argument, 2. DB Default, 3. Hardcoded Fallback
+        actual_model = model or (default_ollama.default_model if default_ollama else "llama3.2")
+
         self.llm = OllamaClient(
-            model=model, 
-            format=ToolCallingFormat(format)
+            model=actual_model, 
+            format=ToolCallingFormat(format),
+            host=actual_host
         )
         self.messages: List[Dict[str, str]] = []
+        if system_message:
+            self.messages.append({"role": "system", "content": system_message})
+            
         self.log_callback = log_callback
+        
         # Why we use StdioServerParameters:
         # This tells the client how to launch and communicate with our MCP server.
         env = os.environ.copy()
         if env_overrides:
             env.update(env_overrides)
             
+        server_args = ["-m", "ssh_mcp_agent.server"]
+        if config_path:
+            server_args.extend(["--config", config_path])
+
         self.server_params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "ssh_mcp_agent.server"],
+            args=server_args,
             env=env
         )
 
@@ -109,12 +132,13 @@ async def main():
     import argparse
     parser = argparse.ArgumentParser(description="SSH MCP Agent")
     parser.add_argument("query", help="User query for the agent")
-    parser.add_argument("--model", default="llama3.2", help="Ollama model to use")
+    parser.add_argument("--model", help="Ollama model to use (overrides config)")
     parser.add_argument("--format", default="native", choices=["native", "json"], help="Tool calling format")
+    parser.add_argument("--config", help="Path to configuration directory or file")
     
     args = parser.parse_args()
     
-    agent = SSHMCPAgent(model=args.model, format=args.format)
+    agent = SSHMCPAgent(model=args.model, format=args.format, config_path=args.config)
     await agent.run(args.query)
 
 if __name__ == "__main__":

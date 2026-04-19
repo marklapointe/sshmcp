@@ -41,6 +41,20 @@ class OllamaClient:
         self.client = ollama.AsyncClient(host=actual_host)
         self._detected_format: Optional[ToolCallingFormat] = None
 
+    async def list_models(self) -> List[str]:
+        """
+        Fetches the list of available models from Ollama.
+        """
+        try:
+            response = await self.client.list()
+            # The ollama-python library returns a ListResponse object which has a 'models' attribute
+            # Each model is a Model object or dict depending on version.
+            models = getattr(response, 'models', [])
+            return [getattr(m, 'model', m.get('model', '')) if not isinstance(m, str) else m for m in models]
+        except Exception as e:
+            logger.error(f"Failed to list models: {e}")
+            return []
+
     async def _detect_format(self) -> ToolCallingFormat:
         """
         Inspects the model to decide the best tool-calling format.

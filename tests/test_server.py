@@ -1,6 +1,13 @@
 import pytest
 from unittest.mock import patch, MagicMock
+import ssh_mcp_agent.server
 from ssh_mcp_agent.server import list_tools, call_tool
+
+# Initialize managers for tests
+ssh_mcp_agent.server.hosts_manager = MagicMock()
+ssh_mcp_agent.server.config_manager = MagicMock()
+ssh_mcp_agent.server.config_manager.settings = MagicMock()
+ssh_mcp_agent.server.config_manager.settings.ssh_password = None
 
 @pytest.mark.asyncio
 async def test_list_tools():

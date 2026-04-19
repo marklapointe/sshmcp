@@ -1,8 +1,8 @@
 import asyncio
 import os
+import argparse
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
 from mcp.server import Server, NotificationOptions
 from mcp.server.stdio import stdio_server
 from mcp.types import (
@@ -15,12 +15,11 @@ from pydantic import BaseModel, Field
 
 from .tools.ssh import SSHClient, SSHConfig, SSHConfig as SSHConfigData
 from .hosts import HostsManager, HostConfig
+from .config import ConfigManager
 
-# Load environment variables from .env file if it exists
-load_dotenv()
-
-# Initialize Hosts Manager
-hosts_manager = HostsManager()
+# Managers will be initialized in main()
+hosts_manager: Optional[HostsManager] = None
+config_manager: Optional[ConfigManager] = None
 
 # Why we are using a Server class:
 # The MCP Server acts as a bridge between the LLM and the local/remote tools.
@@ -72,33 +71,33 @@ async def list_tools() -> List[Tool]:
 
 def get_ssh_config(identifier: str) -> SSHConfig:
     """Look up SSH configuration for a given host identifier."""
+    if hosts_manager is None:
+        raise ValueError("Hosts manager not initialized")
+    
     host_config = hosts_manager.get_by_name_or_host(identifier)
+    
+    # Use config_manager for global settings if available
+    global_ssh_password = config_manager.settings.ssh_password.get_secret_value() if config_manager and config_manager.settings.ssh_password else None
+    
+    # Check environment variable as well (for session-based passwords from UI)
+    env_ssh_password = os.environ.get("SSH_PASSWORD")
     
     if host_config:
         return SSHConfig(
             host=host_config.host,
             username=host_config.username,
-            password=host_config.password,
+            password=env_ssh_password or global_ssh_password or (host_config.password.get_secret_value() if host_config.password else None),
             key_filename=host_config.key_filename,
             port=host_config.port
         )
     
-    # Fallback to env vars ONLY if the identifier matches the env SSH_HOST
-    env_host = os.getenv("SSH_HOST")
-    if env_host and (identifier == env_host or identifier == "default"):
-        return SSHConfig(
-            host=env_host,
-            username=os.getenv("SSH_USERNAME", ""),
-            password=os.getenv("SSH_PASSWORD"),
-            key_filename=os.getenv("SSH_KEY_FILENAME"),
-            port=int(os.getenv("SSH_PORT", "22"))
-        )
-        
     raise ValueError(f"No configuration found for host '{identifier}'. Please configure it in the Host Manager first.")
 
 @app.call_tool()
 async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle tool calls from the LLM client."""
+    if hosts_manager is None:
+        return [TextContent(type="text", text="Error: Hosts manager not initialized")]
     
     try:
         if name == "ssh_execute":
@@ -149,6 +148,14 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
 
 async def main():
     """Main entry point for the MCP server."""
+    parser = argparse.ArgumentParser(description="SSH MCP Server")
+    parser.add_argument("--config", help="Path to configuration directory or file")
+    args = parser.parse_args()
+
+    global hosts_manager, config_manager
+    config_manager = ConfigManager(args.config)
+    hosts_manager = HostsManager(config_manager.settings.database_url, args.config)
+
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
             read_stream,

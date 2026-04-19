@@ -1,0 +1,4 @@
+{
+  "database_url": "sqlite:///data/hosts.db",
+  "ssh_password": "optional_global_password"
+}
