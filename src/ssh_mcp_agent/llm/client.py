@@ -18,6 +18,7 @@ class ToolCallingFormat(Enum):
 class LLMResponse(BaseModel):
     content: str
     tool_calls: List[Dict[str, Any]] = []
+    detected_format: Optional[str] = None
 
 class LLMClient(Protocol):
     """Protocol for LLM clients to ensure extensibility."""
@@ -92,13 +93,16 @@ class OllamaClient:
         fmt = await self._detect_format()
         
         if fmt == ToolCallingFormat.NATIVE:
-            return await self._chat_native(messages, tools)
+            resp = await self._chat_native(messages, tools)
         elif fmt == ToolCallingFormat.JSON:
-            return await self._chat_json(messages, tools)
+            resp = await self._chat_json(messages, tools)
         elif fmt == ToolCallingFormat.XML:
-            return await self._chat_xml(messages, tools)
+            resp = await self._chat_xml(messages, tools)
         else:
             raise NotImplementedError(f"Format {fmt} not implemented")
+            
+        resp.detected_format = fmt.value
+        return resp
 
     async def _chat_native(self, messages: List[Dict[str, str]], tools: List[Dict[str, Any]]) -> LLMResponse:
         response = await self.client.chat(

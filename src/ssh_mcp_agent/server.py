@@ -3,17 +3,15 @@ import os
 import argparse
 from typing import Any, Dict, List, Optional
 
-from mcp.server import Server, NotificationOptions
+from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
     Tool,
     TextContent,
-    EmbeddedResource,
-    LoggingLevel,
 )
 from pydantic import BaseModel, Field
 
-from .tools.ssh import SSHClient, SSHConfig, SSHConfig as SSHConfigData
+from .tools.ssh import SSHClient, SSHConfig
 from .hosts import HostsManager, HostConfig
 from .config import ConfigManager
 

@@ -6,12 +6,43 @@
     <title>SSH MCP Agent | Control Center</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
         body { font-family: 'Inter', sans-serif; }
         .code-font { font-family: 'Fira Code', monospace; }
         .scroll-hide::-webkit-scrollbar { display: none; }
         .scroll-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .markdown-body {
+            background-color: transparent !important;
+            font-size: 0.875rem !important;
+            line-height: 1.5 !important;
+        }
+        .markdown-body pre {
+            background-color: #0f172a !important;
+            border: 1px solid #334155 !important;
+        }
+        .markdown-body code {
+            background-color: #1e293b !important;
+        }
+        .fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 100 !important;
+        }
+        .hidden-pane {
+            display: none !important;
+        }
+        .expanded-pane {
+            width: 100% !important;
+        }
+        .hide-tools .message-tool {
+            display: none !important;
+        }
     </style>
 </head>
 <body class="bg-[#0f172a] text-slate-200 h-screen overflow-hidden flex flex-col">
@@ -33,6 +64,12 @@
             <button id="manage-hosts-btn" class="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-lg border border-slate-600 transition">
                 <i class="fas fa-server mr-2 opacity-70"></i>Hosts
             </button>
+            <button id="settings-btn" class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white transition">
+                <i class="fas fa-cog"></i>
+            </button>
+            <button id="logout-btn" class="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-400 transition">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
             <div class="flex items-center space-x-2 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-700">
                 <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                 <span class="text-xs font-medium text-slate-400">Ollama Connected</span>
@@ -40,9 +77,49 @@
         </div>
     </header>
 
+        <!-- Login Overlay -->
+        <div id="login-overlay" class="fixed inset-0 bg-[#0f172a] z-[200] flex items-center justify-center hidden">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden p-8">
+                <div class="flex flex-col items-center mb-8">
+                    <div class="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center mb-4">
+                        <i class="fas fa-lock text-white text-xl"></i>
+                    </div>
+                    <h2 class="text-2xl font-bold">Welcome Back</h2>
+                    <p class="text-slate-400 text-sm">Sign in to control your servers</p>
+                </div>
+                <form id="login-form" class="space-y-4">
+                    <div>
+                        <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Username</label>
+                        <input type="text" id="login-username" required autocomplete="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="admin">
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Password</label>
+                        <input type="password" id="login-password" required autocomplete="current-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="password">
+                    </div>
+                    <div id="login-error" class="text-red-400 text-xs text-center hidden">Invalid username or password</div>
+                    <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm transition font-bold shadow-lg shadow-blue-900/20">
+                        Sign In
+                    </button>
+                </form>
+            </div>
+        </div>
+
     <main class="flex-grow flex overflow-hidden">
         <!-- Left Side: Chat -->
-        <div class="w-1/2 flex flex-col border-r border-slate-800 bg-[#0f172a]">
+        <div id="chat-section" class="w-1/2 flex flex-col border-r border-slate-800 bg-[#0f172a] transition-all duration-300 relative">
+            <div class="h-10 border-b border-slate-800 flex items-center justify-between px-4 shrink-0 bg-[#0f172a]">
+                <div class="flex items-center space-x-2">
+                    <i class="fas fa-comments text-blue-500 text-[10px]"></i>
+                    <span class="text-[9px] uppercase font-bold tracking-widest text-slate-400">Agent Conversation</span>
+                    <span id="current-host-display" class="text-[9px] font-bold text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded ml-2 hidden"></span>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button id="toggle-tools-btn" class="text-slate-500 hover:text-slate-300 transition text-[10px] font-bold" title="Toggle Tool Visibility">TOOLS: ON</button>
+                    <button id="toggle-logs-btn" class="text-slate-500 hover:text-slate-300 transition" title="Toggle Logs"><i class="fas fa-columns"></i></button>
+                    <button id="chat-popout-btn" class="text-slate-500 hover:text-slate-300 transition" title="Pop Out Chat"><i class="fas fa-external-link-alt"></i></button>
+                    <button id="chat-fullscreen-btn" class="text-slate-500 hover:text-slate-300 transition" title="Full Screen"><i class="fas fa-expand"></i></button>
+                </div>
+            </div>
             <div id="chat-container" class="flex-grow overflow-y-auto p-6 space-y-6 scroll-hide">
                 <div class="flex flex-col items-center justify-center h-full text-slate-500 space-y-4">
                     <i class="fas fa-comments text-4xl opacity-20"></i>
@@ -90,21 +167,24 @@
         </div>
 
         <!-- Right Side: Logs/Execution -->
-        <div class="w-1/2 flex flex-col bg-[#020617]">
-            <div class="h-12 border-b border-slate-800 flex items-center justify-between px-4 shrink-0 bg-[#0f172a]">
+        <div id="log-section" class="w-1/2 flex flex-col bg-[#020617] transition-all duration-300 relative">
+            <div class="h-10 border-b border-slate-800 flex items-center justify-between px-4 shrink-0 bg-[#0f172a]">
                 <div class="flex items-center space-x-2">
                     <i class="fas fa-microchip text-blue-500 text-xs"></i>
                     <span class="text-[10px] uppercase font-bold tracking-widest text-slate-400">Execution Logs</span>
                 </div>
-                <button id="clear-logs" class="text-[10px] text-slate-500 hover:text-slate-300 transition">CLEAR</button>
+                <div class="flex items-center space-x-4">
+                    <button id="clear-logs" class="text-[10px] text-slate-500 hover:text-slate-300 transition">CLEAR</button>
+                    <button id="log-popout-btn" class="text-slate-500 hover:text-slate-300 transition" title="Pop Out Logs"><i class="fas fa-external-link-alt"></i></button>
+                    <button id="log-fullscreen-btn" class="text-slate-500 hover:text-slate-300 transition" title="Full Screen"><i class="fas fa-expand"></i></button>
+                    <button id="hide-logs-btn" class="text-slate-500 hover:text-slate-300 transition font-bold text-lg mb-1" title="Hide Logs">_</button>
+                </div>
             </div>
             <div id="log-container" class="flex-grow overflow-y-auto p-4 space-y-2 code-font text-xs scroll-hide">
                 <div class="text-slate-700 italic">Waiting for tool execution...</div>
             </div>
         </div>
     </main>
-
-    </div>
 
     <!-- Ollama Management Modal -->
     <div id="ollama-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
@@ -144,6 +224,15 @@
                         <div>
                             <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Default Model</label>
                             <input type="text" id="ollama-default-model" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="llama3.2">
+                        </div>
+                        <div>
+                            <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Default Protocol</label>
+                            <select id="ollama-default-format" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                                <option value="auto">Auto-detect</option>
+                                <option value="native">Native Tooling</option>
+                                <option value="json">Legacy JSON</option>
+                                <option value="xml">XML Tags</option>
+                            </select>
                         </div>
                         <div class="flex items-center space-x-2 pt-1">
                             <input type="checkbox" id="ollama-is-default" class="rounded border-slate-700 bg-slate-900 text-blue-600 focus:ring-blue-500">
@@ -201,11 +290,11 @@
                         </div>
                         <div>
                             <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Username</label>
-                            <input type="text" id="host-user" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="root">
+                            <input type="text" id="host-user" required autocomplete="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="root">
                         </div>
                         <div>
                             <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Password</label>
-                            <input type="password" id="host-pass" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Optional">
+                            <input type="password" id="host-pass" autocomplete="current-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Optional">
                         </div>
                         <div class="pt-2">
                             <button type="submit" class="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm transition font-bold shadow-lg shadow-blue-900/20">
@@ -253,7 +342,6 @@
         </div>
     </div>
 
-    <!-- Password Modal -->
     <div id="password-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
         <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
             <div class="p-6 border-b border-slate-700 flex items-center justify-between bg-slate-800/50">
@@ -265,11 +353,43 @@
             <div class="p-6">
                 <p class="text-sm text-slate-400 mb-4">Please enter the password for the remote host. This will not be stored permanently.</p>
                 <form id="password-form" class="space-y-4">
-                    <input type="password" id="temp-password" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Password">
+                    <input type="password" id="temp-password" required autocomplete="new-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Password">
                     <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm transition font-bold shadow-lg shadow-blue-900/20">
                         Continue
                     </button>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-700 flex items-center justify-between bg-slate-800/50">
+                <h2 class="text-lg font-bold">Application Settings</h2>
+                <button id="close-settings-modal" class="text-slate-400 hover:text-white transition">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-6">
+                <div class="space-y-2">
+                    <label class="text-[10px] uppercase font-bold text-slate-500 ml-1">Current User</label>
+                    <div id="settings-user-info" class="bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm flex justify-between">
+                        <span id="display-username" class="text-slate-200">...</span>
+                        <span id="display-role" class="text-blue-500 font-bold uppercase text-[10px] bg-blue-900/30 px-2 py-0.5 rounded">...</span>
+                    </div>
+                </div>
+                <div class="space-y-2">
+                    <label class="text-[10px] uppercase font-bold text-slate-500 ml-1">Presentation Timezone</label>
+                    <select id="settings-timezone" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none text-slate-200">
+                        <option value="auto">Auto (Detected)</option>
+                    </select>
+                </div>
+                <div class="pt-4 border-t border-slate-700">
+                    <button id="logout-btn-modal" class="w-full py-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-900/50 rounded-lg text-sm transition font-bold">
+                        Sign Out
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -298,6 +418,17 @@
         const passwordForm = document.getElementById('password-form');
         const tempPasswordInput = document.getElementById('temp-password');
 
+        const chatSection = document.getElementById('chat-section');
+        const logSection = document.getElementById('log-section');
+        const toggleLogsBtn = document.getElementById('toggle-logs-btn');
+        const hideLogsBtn = document.getElementById('hide-logs-btn');
+        const chatFullscreenBtn = document.getElementById('chat-fullscreen-btn');
+        const logFullscreenBtn = document.getElementById('log-fullscreen-btn');
+        const chatPopoutBtn = document.getElementById('chat-popout-btn');
+        const logPopoutBtn = document.getElementById('log-popout-btn');
+        const toggleToolsBtn = document.getElementById('toggle-tools-btn');
+        const currentHostDisplay = document.getElementById('current-host-display');
+
         const ollamaSelect = document.getElementById('ollama-select');
         const manageOllamaBtn = document.getElementById('manage-ollama-btn');
         const ollamaModal = document.getElementById('ollama-modal');
@@ -307,25 +438,281 @@
         const newOllamaBtn = document.getElementById('new-ollama-btn');
         const editOllamaId = document.getElementById('edit-ollama-id');
 
+        const loginOverlay = document.getElementById('login-overlay');
+        const loginForm = document.getElementById('login-form');
+        const loginUsernameInput = document.getElementById('login-username');
+        const loginPasswordInput = document.getElementById('login-password');
+        const loginError = document.getElementById('login-error');
+        const logoutBtn = document.getElementById('logout-btn');
+        const logoutBtnModal = document.getElementById('logout-btn-modal');
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsModal = document.getElementById('settings-modal');
+        const closeSettingsModal = document.getElementById('close-settings-modal');
+        const timezoneSelect = document.getElementById('settings-timezone');
+
         let savedHosts = [];
         let savedOllama = [];
         let lastQuery = "";
         let pendingHostCorrection = "";
+        let currentUser = null;
+        let ws = null;
 
+        // Auth management
+        function getToken() { return localStorage.getItem('ssh_mcp_token'); }
+        function setToken(token) { localStorage.setItem('ssh_mcp_token', token); }
+        function removeToken() { localStorage.removeItem('ssh_mcp_token'); }
+
+        async function authenticatedFetch(url, options = {}) {
+            const token = getToken();
+            if (!token && !url.includes('/token')) {
+                showLogin();
+                throw new Error('Not authenticated');
+            }
+            
+            options.headers = options.headers || {};
+            if (token) {
+                options.headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            const response = await fetch(url, options);
+            if (response.status === 401) {
+                showLogin();
+                throw new Error('Session expired');
+            }
+            return response;
+        }
+
+        function showLogin() {
+            loginOverlay.classList.remove('hidden');
+        }
+
+        function hideLogin() {
+            loginOverlay.classList.add('hidden');
+        }
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = loginUsernameInput.value.trim();
+            const password = loginPasswordInput.value;
+            
+            const params = new URLSearchParams();
+            params.append('username', username);
+            params.append('password', password);
+
+            try {
+                const response = await fetch('/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: params
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    setToken(data.access_token);
+                    hideLogin();
+                    loginError.classList.add('hidden');
+                    loginPasswordInput.value = '';
+                    initializeApp();
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    loginError.textContent = errorData.detail || 'Invalid username or password';
+                    loginError.classList.remove('hidden');
+                }
+            } catch (err) {
+                loginError.textContent = 'Connection error: ' + err.message;
+                loginError.classList.remove('hidden');
+            }
+        });
+
+        function logout() {
+            removeToken();
+            if (ws) ws.close();
+            location.reload();
+        }
+
+        logoutBtn.addEventListener('click', logout);
+        logoutBtnModal.addEventListener('click', logout);
+
+        settingsBtn.addEventListener('click', () => {
+            if (currentUser) {
+                document.getElementById('display-username').textContent = currentUser.username;
+                document.getElementById('display-role').textContent = currentUser.role;
+            }
+            settingsModal.classList.remove('hidden');
+        });
+        closeSettingsModal.addEventListener('click', () => settingsModal.classList.add('hidden'));
+
+        // Timezone management
+        function populateTimezones() {
+            if (!Intl.supportedValuesOf) return;
+            const tzs = Intl.supportedValuesOf('timeZone');
+            tzs.forEach(tz => {
+                const opt = document.createElement('option');
+                opt.value = tz;
+                opt.textContent = tz;
+                timezoneSelect.appendChild(opt);
+            });
+            
+            // Load saved preference
+            const savedTz = localStorage.getItem('ssh_mcp_timezone') || 'auto';
+            timezoneSelect.value = savedTz;
+        }
+        
+        timezoneSelect.addEventListener('change', () => {
+            localStorage.setItem('ssh_mcp_timezone', timezoneSelect.value);
+            // Re-render history if possible
+            pollHistory();
+        });
+        
+        function formatTimestamp(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            const tzPref = localStorage.getItem('ssh_mcp_timezone') || 'auto';
+            
+            const options = {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            };
+            
+            if (tzPref !== 'auto') {
+                options.timeZone = tzPref;
+            }
+            
+            // Also include date if it's not today
+            const now = new Date();
+            if (date.toDateString() !== now.toDateString()) {
+                options.month = 'short';
+                options.day = 'numeric';
+            }
+            
+            return new Intl.DateTimeFormat(undefined, options).format(date);
+        }
+
+        // App Initialization
+        async function initializeApp() {
+            populateTimezones();
+            const token = getToken();
+            if (!token) {
+                showLogin();
+                return;
+            }
+
+            try {
+                const meResp = await authenticatedFetch('/me');
+                currentUser = await meResp.json();
+                
+                // Hide admin features for users
+                if (currentUser.role !== 'admin') {
+                    manageHostsBtn.classList.add('hidden');
+                    manageOllamaBtn.classList.add('hidden');
+                    // Also hide edit/delete buttons in lists (handled in render functions)
+                }
+
+                await fetchHosts();
+                await fetchOllamaInstances();
+                await fetchModels();
+                await fetchSettings();
+                await pollHistory();
+                connectWebSocket();
+            } catch (err) {
+                console.error('Initialization failed', err);
+            }
+        }
+
+        function connectWebSocket() {
+            if (ws) {
+                ws.onclose = null;
+                ws.close();
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            let host = window.location.host;
+            // Handle 0.0.0.0 which often fails as a connection target in browsers
+            // We also check for 127.0.0.1 just in case localhost is preferred
+            if (host.startsWith('0.0.0.0')) {
+                host = host.replace('0.0.0.0', 'localhost');
+            }
+            
+            const token = getToken();
+            const wsUrl = `${protocol}//${host}/ws?token=${encodeURIComponent(token)}`;
+            console.log(`[WebSocket] Connecting to: ${wsUrl}`);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+            } catch (err) {
+                console.error('[WebSocket] Failed to create object:', err);
+                setTimeout(connectWebSocket, 5000);
+                return;
+            }
+            
+            ws.onopen = () => {
+                console.log('[WebSocket] Connected successfully');
+            };
+
+            ws.onerror = (error) => {
+                console.error('[WebSocket] Error detected:', error);
+            };
+
+            ws.onmessage = (event) => {
+                console.log('[WebSocket] Message received');
+                const data = JSON.parse(event.data);
+                const timestamp = data.timestamp || new Date().toISOString();
+                
+                if (data.type === 'error') {
+                    console.error('[WebSocket] Server reported error:', data.content);
+                } else if (data.type === 'tool_call') {
+                    appendLog('tool_call', data.name, data.arguments, timestamp);
+                } else if (data.type === 'tool_result') {
+                    appendLog('tool_result', data.name, data.content, timestamp);
+                    
+                    if (data.content.startsWith("Error:") && (data.content.includes("Authentication failed") || data.content.includes("Bad authentication type") || data.content.includes("Permission denied"))) {
+                        triggerPasswordModal();
+                    } else if (data.content.includes("No configuration found for host")) {
+                        const match = data.content.match(/'(.*?)'/);
+                        if (match) {
+                            pendingHostCorrection = match[1];
+                            document.getElementById('host-address').value = pendingHostCorrection;
+                            document.getElementById('host-name').value = pendingHostCorrection;
+                        }
+                        if (currentUser.role === 'admin') hostsModal.classList.remove('hidden');
+                    }
+                } else if (data.type === 'assistant_message') {
+                   // Historical messages handled by pollHistory for now, 
+                   // but we could append real-time if we wanted.
+                   // Actually pollHistory is already doing its thing.
+                } else if (data.type === 'detected_format') {
+                    if (formatSelect.value !== data.format) {
+                        formatSelect.value = data.format;
+                        const ollamaId = ollamaSelect.value;
+                        if (ollamaId && currentUser.role === 'admin') {
+                            authenticatedFetch(`/ollama/${ollamaId}/format?format=${data.format}`, { method: 'POST' });
+                        }
+                    }
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected. Retrying in 5s...');
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+
+        // Rest of the functions updated for authenticatedFetch
         async function fetchHosts() {
-            const response = await fetch('/hosts');
+            const response = await authenticatedFetch('/hosts');
             savedHosts = await response.json();
             renderHosts();
         }
 
         async function fetchOllamaInstances() {
-            const response = await fetch('/ollama');
+            const response = await authenticatedFetch('/ollama');
             savedOllama = await response.json();
             renderOllamaInstances();
         }
 
         function renderOllamaInstances() {
-            // Update dropdown
             const currentVal = ollamaSelect.value;
             ollamaSelect.innerHTML = '';
             savedOllama.forEach(o => {
@@ -333,28 +720,27 @@
                 opt.value = o.id;
                 opt.textContent = o.name + (o.is_default ? ' (default)' : '');
                 ollamaSelect.appendChild(opt);
-                if (o.is_default && !currentVal) {
-                    ollamaSelect.value = o.id;
-                }
+                if (o.is_default && !currentVal) ollamaSelect.value = o.id;
             });
             if (currentVal && Array.from(ollamaSelect.options).some(o => o.value === currentVal)) {
                 ollamaSelect.value = currentVal;
             }
 
-            // Update modal list
             ollamaList.innerHTML = '';
             savedOllama.forEach(o => {
                 const div = document.createElement('div');
                 div.className = 'flex items-center justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-700 hover:border-slate-500 transition group';
+                const adminControls = (currentUser && currentUser.role === 'admin') ? `
+                    <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+                        <button onclick="editOllama('${o.id}')" class="p-1.5 hover:text-blue-400 transition"><i class="fas fa-edit"></i></button>
+                        <button onclick="deleteOllama('${o.id}')" class="p-1.5 hover:text-red-400 transition"><i class="fas fa-trash"></i></button>
+                    </div>` : '';
                 div.innerHTML = `
                     <div class="flex flex-col">
                         <span class="text-sm font-bold text-slate-200">${o.name}</span>
                         <span class="text-[10px] text-slate-500">${o.host}</span>
                     </div>
-                    <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
-                        <button onclick="editOllama('${o.id}')" class="p-1.5 hover:text-blue-400 transition"><i class="fas fa-edit"></i></button>
-                        <button onclick="deleteOllama('${o.id}')" class="p-1.5 hover:text-red-400 transition"><i class="fas fa-trash"></i></button>
-                    </div>
+                    ${adminControls}
                 `;
                 ollamaList.appendChild(div);
             });
@@ -367,12 +753,13 @@
             document.getElementById('ollama-name').value = o.name;
             document.getElementById('ollama-host').value = o.host;
             document.getElementById('ollama-default-model').value = o.default_model;
+            document.getElementById('ollama-default-format').value = o.default_format || 'auto';
             document.getElementById('ollama-is-default').checked = o.is_default;
         };
 
         window.deleteOllama = async (id) => {
             if (!confirm('Are you sure you want to delete this instance?')) return;
-            await fetch(`/ollama/${id}`, { method: 'DELETE' });
+            await authenticatedFetch(`/ollama/${id}`, { method: 'DELETE' });
             await fetchOllamaInstances();
             fetchModels();
         };
@@ -384,10 +771,11 @@
                 name: document.getElementById('ollama-name').value,
                 host: document.getElementById('ollama-host').value,
                 default_model: document.getElementById('ollama-default-model').value,
+                default_format: document.getElementById('ollama-default-format').value,
                 is_default: document.getElementById('ollama-is-default').checked
             };
             
-            await fetch('/ollama', {
+            await authenticatedFetch('/ollama', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -410,7 +798,6 @@
         });
 
         function renderHosts() {
-            // Update dropdown
             const currentVal = hostSelect.value;
             hostSelect.innerHTML = '';
             savedHosts.forEach(h => {
@@ -424,8 +811,8 @@
             } else if (savedHosts.length > 0) {
                 hostSelect.value = savedHosts[0].id;
             }
+            updateHostDisplay();
 
-            // Update modal list
             hostList.innerHTML = '';
             if (savedHosts.length === 0) {
                 hostList.innerHTML = '<div class="text-slate-600 text-xs italic p-4 text-center">No hosts saved yet</div>';
@@ -433,19 +820,33 @@
             savedHosts.forEach(h => {
                 const div = document.createElement('div');
                 div.className = 'flex items-center justify-between p-3 bg-slate-900/50 rounded-xl border border-slate-700 hover:border-slate-500 transition group';
+                const adminControls = (currentUser && currentUser.role === 'admin') ? `
+                    <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+                        <button onclick="editHost('${h.id}')" class="p-1.5 hover:text-blue-400 transition"><i class="fas fa-edit"></i></button>
+                        <button onclick="deleteHost('${h.id}')" class="p-1.5 hover:text-red-400 transition"><i class="fas fa-trash"></i></button>
+                    </div>` : '';
                 div.innerHTML = `
                     <div class="flex flex-col">
                         <span class="text-sm font-bold text-slate-200">${h.name}</span>
                         <span class="text-[10px] text-slate-500">${h.username}@${h.host}:${h.port}</span>
                     </div>
-                    <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
-                        <button onclick="editHost('${h.id}')" class="p-1.5 hover:text-blue-400 transition"><i class="fas fa-edit"></i></button>
-                        <button onclick="deleteHost('${h.id}')" class="p-1.5 hover:text-red-400 transition"><i class="fas fa-trash"></i></button>
-                    </div>
+                    ${adminControls}
                 `;
                 hostList.appendChild(div);
             });
         }
+
+        function updateHostDisplay() {
+            const h = savedHosts.find(x => x.id === hostSelect.value);
+            if (h) {
+                currentHostDisplay.textContent = h.name;
+                currentHostDisplay.classList.remove('hidden');
+            } else {
+                currentHostDisplay.classList.add('hidden');
+            }
+        }
+
+        hostSelect.addEventListener('change', updateHostDisplay);
 
         window.editHost = (id) => {
             const h = savedHosts.find(x => x.id === id);
@@ -460,7 +861,7 @@
 
         window.deleteHost = async (id) => {
             if (!confirm('Are you sure you want to delete this host?')) return;
-            await fetch(`/hosts/${id}`, { method: 'DELETE' });
+            await authenticatedFetch(`/hosts/${id}`, { method: 'DELETE' });
             await fetchHosts();
         };
 
@@ -475,7 +876,7 @@
                 password: document.getElementById('host-pass').value || null
             };
             
-            await fetch('/hosts', {
+            await authenticatedFetch('/hosts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -499,41 +900,57 @@
         helpBtn.addEventListener('click', () => helpModal.classList.remove('hidden'));
         closeHelpModal.addEventListener('click', () => helpModal.classList.add('hidden'));
 
-        function appendChatMessage(role, content) {
+        function appendChatMessage(role, content, timestamp = null) {
             if (chatContainer.querySelector('.text-slate-500')) {
                 chatContainer.innerHTML = '';
             }
             
             const isUser = role === 'user';
-            const div = document.createElement('div');
-            div.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+            const isSystem = role === 'system';
+            const isTool = role === 'tool';
             
+            if (isSystem) return; 
+
+            const div = document.createElement('div');
+            div.className = `flex ${isUser ? 'justify-end' : 'justify-start'} ${isTool ? 'message-tool' : ''} mb-4`;
+            const innerContent = isUser ? content : (isTool ? marked.parse(`\`\`\`\n${content}\n\`\`\``) : marked.parse(content));
+            const markdownClass = isUser ? '' : 'markdown-body';
+            const bgColor = isUser ? 'bg-blue-600 text-white' : (isTool ? 'bg-slate-900 border border-slate-800 text-slate-400' : 'bg-slate-800 border border-slate-700 text-slate-200');
+            const labelColor = isUser ? 'text-blue-200' : (isTool ? 'text-slate-600' : 'text-slate-500');
+            const timeStr = formatTimestamp(timestamp || new Date().toISOString());
+
             div.innerHTML = `
-                <div class="max-w-[85%] rounded-2xl p-4 ${isUser ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-200'}">
-                    <div class="text-[10px] uppercase font-bold mb-1 ${isUser ? 'text-blue-200' : 'text-slate-500'}">${role}</div>
-                    <div class="text-sm whitespace-pre-wrap">${content}</div>
+                <div class="max-w-[85%] rounded-2xl p-4 ${bgColor} shadow-sm">
+                    <div class="flex justify-between items-center mb-1 space-x-4">
+                        <div class="text-[10px] uppercase font-bold ${labelColor}">${role}</div>
+                        <div class="text-[9px] opacity-60 font-medium">${timeStr}</div>
+                    </div>
+                    <div class="text-sm ${isUser ? 'whitespace-pre-wrap' : markdownClass}">${innerContent}</div>
                 </div>
             `;
             chatContainer.appendChild(div);
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        function appendLog(type, name, data) {
+        function appendLog(type, name, data, timestamp = null) {
             if (logContainer.querySelector('.italic')) {
                 logContainer.innerHTML = '';
             }
-            
             const div = document.createElement('div');
             div.className = 'p-2 rounded bg-slate-900 border-l-2 mb-2';
-            
+            const timeStr = formatTimestamp(timestamp || new Date().toISOString());
+
             if (type === 'tool_call') {
                 div.classList.add('border-blue-500');
                 div.innerHTML = `
-                    <div class="flex items-center space-x-2 mb-1">
-                        <span class="text-blue-400 font-bold">CALL</span>
-                        <span class="text-slate-300 font-medium">${name}</span>
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-blue-400 font-bold text-[10px]">CALL</span>
+                            <span class="text-slate-300 font-medium text-xs">${name}</span>
+                        </div>
+                        <span class="text-[9px] text-slate-500">${timeStr}</span>
                     </div>
-                    <pre class="text-[10px] text-slate-500 overflow-x-auto">${JSON.stringify(data, null, 2)}</pre>
+                    <pre class="text-[10px] text-slate-500 overflow-x-auto p-1 bg-black/20 rounded mt-1">${JSON.stringify(data, null, 2)}</pre>
                 `;
             } else if (type === 'tool_result') {
                 div.classList.add('border-green-500');
@@ -541,51 +958,26 @@
                 if (data.startsWith('Error:')) {
                     div.classList.remove('border-green-500');
                     div.classList.add('border-red-500');
-                    if (data.includes("Authentication failed") || data.includes("Bad authentication type")) {
+                    if (data.includes("Authentication failed") || data.includes("Bad authentication type") || data.includes("Permission denied")) {
                         fixButton = `<button onclick="document.getElementById('password-modal').classList.remove('hidden'); document.getElementById('temp-password').focus();" class="mt-2 text-[10px] bg-red-900/50 hover:bg-red-800 text-red-200 px-2 py-1 rounded border border-red-700 transition">FIX AUTH</button>`;
                     } else if (data.includes("No configuration found")) {
                         fixButton = `<button onclick="document.getElementById('hosts-modal').classList.remove('hidden');" class="mt-2 text-[10px] bg-red-900/50 hover:bg-red-800 text-red-200 px-2 py-1 rounded border border-red-700 transition">CONFIGURE HOST</button>`;
                     }
                 }
                 div.innerHTML = `
-                    <div class="flex items-center space-x-2 mb-1">
-                        <span class="${data.startsWith('Error:') ? 'text-red-400' : 'text-green-400'} font-bold">RESULT</span>
-                        <span class="text-slate-300 font-medium">${name}</span>
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="${data.startsWith('Error:') ? 'text-red-400' : 'text-green-400'} font-bold text-[10px]">RESULT</span>
+                            <span class="text-slate-300 font-medium text-xs">${name}</span>
+                        </div>
+                        <span class="text-[9px] text-slate-500">${timeStr}</span>
                     </div>
                     <div class="text-[10px] text-slate-400 whitespace-pre-wrap mt-1 border-t border-slate-800 pt-1">${data}</div>
                     ${fixButton}
                 `;
             }
-            
             logContainer.appendChild(div);
             logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        async function startEventStream() {
-            const evSource = new EventSource('/events');
-            evSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'tool_call') {
-                    appendLog('tool_call', data.name, data.arguments);
-                } else if (data.type === 'tool_result') {
-                    appendLog('tool_result', data.name, data.content);
-                    
-                    // Detect issues to correct
-                    if (data.content.includes("Authentication failed") || data.content.includes("Bad authentication type")) {
-                        passwordModal.classList.remove('hidden');
-                        tempPasswordInput.focus();
-                    } else if (data.content.includes("No configuration found for host")) {
-                        const match = data.content.match(/'(.*?)'/);
-                        if (match) {
-                            pendingHostCorrection = match[1];
-                            // Pre-fill host address for convenience
-                            document.getElementById('host-address').value = pendingHostCorrection;
-                            document.getElementById('host-name').value = pendingHostCorrection;
-                        }
-                        hostsModal.classList.remove('hidden');
-                    }
-                }
-            };
         }
 
         async function sendQuery(queryOverride = null) {
@@ -596,11 +988,10 @@
                 appendChatMessage('user', query);
                 queryInput.value = '';
             }
-            
             lastQuery = query;
             
             try {
-                const response = await fetch('/chat', {
+                await authenticatedFetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -611,7 +1002,6 @@
                         ollama_id: ollamaSelect.value ? parseInt(ollamaSelect.value) : null
                     })
                 });
-                
                 pollHistory();
             } catch (err) {
                 appendChatMessage('error', 'Failed: ' + err.message);
@@ -620,23 +1010,19 @@
 
         let lastHistory = "";
         async function pollHistory() {
-            const response = await fetch('/history');
-            const data = await response.json();
-            
-            // Only update if something changed and the last message is from assistant
-            const msgs = data.messages;
-            if (msgs.length > 0) {
-                const lastMsg = msgs[msgs.length - 1];
-                if (lastMsg.role === 'assistant' && JSON.stringify(msgs) !== lastHistory) {
-                    appendChatMessage('assistant', lastMsg.content);
+            try {
+                const response = await authenticatedFetch('/history');
+                const data = await response.json();
+                const msgs = data.messages;
+                if (msgs.length > 0 && JSON.stringify(msgs) !== lastHistory) {
+                    chatContainer.innerHTML = '';
+                    msgs.forEach(msg => appendChatMessage(msg.role, msg.content, msg.created_at));
                     lastHistory = JSON.stringify(msgs);
                 }
-            }
-            
-            // If the last message is still 'tool' or 'user', keep polling
-            if (msgs.length > 0 && msgs[msgs.length - 1].role !== 'assistant') {
-                setTimeout(pollHistory, 1000);
-            }
+                if (msgs.length > 0 && msgs[msgs.length - 1].role !== 'assistant') {
+                    setTimeout(pollHistory, 2000); // Slower polling now that we have WS
+                }
+            } catch (err) {}
         }
 
         sendBtn.addEventListener('click', () => sendQuery());
@@ -647,24 +1033,38 @@
             }
         });
 
+        function triggerPasswordModal() {
+            localStorage.setItem('ssh_auth_required', Date.now());
+            if (document.hasFocus() || new URLSearchParams(window.location.search).get('view') === 'chat') {
+                passwordModal.classList.remove('hidden');
+                tempPasswordInput.focus();
+            }
+        }
+
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'ssh_auth_required') {
+                if (document.hasFocus()) {
+                    passwordModal.classList.remove('hidden');
+                    tempPasswordInput.focus();
+                }
+            } else if (e.key === 'ssh_auth_resolved') {
+                passwordModal.classList.add('hidden');
+            }
+        });
+
         passwordForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const pass = tempPasswordInput.value;
             const host_id = hostSelect.value;
-            
             if (!host_id) return;
-            
-            // Set session credentials securely via isolated endpoint
-            await fetch('/session/credentials', {
+            await authenticatedFetch('/session/credentials', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ host_id, password: pass })
             });
-
+            localStorage.setItem('ssh_auth_resolved', Date.now());
             passwordModal.classList.add('hidden');
             tempPasswordInput.value = '';
-            
-            // Re-run the last query with now-loaded session credentials
             sendQuery(lastQuery);
         });
         closePasswordModal.addEventListener('click', () => passwordModal.classList.add('hidden'));
@@ -676,9 +1076,13 @@
         async function fetchModels() {
             try {
                 const ollamaId = ollamaSelect.value;
-                const response = await fetch(`/models${ollamaId ? '?ollama_id=' + ollamaId : ''}`);
+                const response = await authenticatedFetch(`/models${ollamaId ? '?ollama_id=' + ollamaId : ''}`);
                 const data = await response.json();
                 const currentModel = modelSelect.value;
+                const instance = savedOllama.find(o => o.id == ollamaId);
+                const defaultModel = instance ? instance.default_model : 'llama3.2';
+                const defaultFormat = instance ? instance.default_format : 'auto';
+                
                 modelSelect.innerHTML = '';
                 if (data.models && data.models.length > 0) {
                     data.models.forEach(m => {
@@ -687,49 +1091,87 @@
                         opt.textContent = m;
                         modelSelect.appendChild(opt);
                     });
-                    if (data.models.includes(currentModel)) {
-                        modelSelect.value = currentModel;
-                    }
+                    if (data.models.includes(currentModel)) modelSelect.value = currentModel;
+                    else if (data.models.includes(defaultModel)) modelSelect.value = defaultModel;
                 } else {
                     modelSelect.innerHTML = '<option value="llama3.2">llama3.2 (fallback)</option>';
                 }
+                if (defaultFormat) formatSelect.value = defaultFormat;
             } catch (err) {
-                console.error("Failed to fetch models", err);
+                console.error('Failed to fetch models:', err);
             }
         }
 
         async function fetchSettings() {
             try {
-                const response = await fetch('/settings');
-                const settings = await response.json();
-                if (settings.ollama_model) {
-                    // We need to wait for models to be loaded first if we want to select it
-                    // but we can also just add it if it's not there
-                    let exists = Array.from(modelSelect.options).some(opt => opt.value === settings.ollama_model);
-                    if (!exists) {
-                        const opt = document.createElement('option');
-                        opt.value = settings.ollama_model;
-                        opt.textContent = settings.ollama_model;
-                        modelSelect.appendChild(opt);
-                    }
-                    modelSelect.value = settings.ollama_model;
-                }
+                await authenticatedFetch('/settings');
             } catch (err) {
-                console.error("Failed to fetch settings", err);
+                console.error('Failed to fetch settings:', err);
             }
         }
 
         modelSelect.addEventListener('change', async () => {
-            // No longer saving to global settings, as it depends on the instance
+            const model = modelSelect.value;
+            const ollamaId = ollamaSelect.value;
+            if (ollamaId && model && currentUser.role === 'admin') {
+                await authenticatedFetch(`/ollama/${ollamaId}/model?model=${encodeURIComponent(model)}`, { method: 'POST' });
+            }
         });
 
-        ollamaSelect.addEventListener('change', async () => {
-            await fetchModels();
+        ollamaSelect.addEventListener('change', fetchModels);
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const view = urlParams.get('view');
+        if (view === 'chat') {
+            document.querySelector('header').classList.add('hidden');
+            logSection.classList.add('hidden');
+            chatSection.classList.add('expanded-pane', 'border-none');
+            toggleLogsBtn.classList.add('hidden');
+            chatFullscreenBtn.classList.add('hidden');
+            chatPopoutBtn.classList.add('hidden');
+        } else if (view === 'logs') {
+            document.querySelector('header').classList.add('hidden');
+            chatSection.classList.add('hidden');
+            logSection.classList.add('expanded-pane');
+            logFullscreenBtn.classList.add('hidden');
+            logPopoutBtn.classList.add('hidden');
+            hideLogsBtn.classList.add('hidden');
+        }
+
+        toggleLogsBtn.addEventListener('click', () => {
+            logSection.classList.toggle('hidden-pane');
+            chatSection.classList.toggle('expanded-pane');
+        });
+        hideLogsBtn.addEventListener('click', () => {
+            logSection.classList.add('hidden-pane');
+            chatSection.classList.add('expanded-pane');
+        });
+        chatFullscreenBtn.addEventListener('click', () => {
+            chatSection.classList.toggle('fullscreen');
+            chatFullscreenBtn.innerHTML = chatSection.classList.contains('fullscreen') ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
+        });
+        logFullscreenBtn.addEventListener('click', () => {
+            logSection.classList.toggle('fullscreen');
+            logFullscreenBtn.innerHTML = logSection.classList.contains('fullscreen') ? '<i class="fas fa-compress"></i>' : '<i class="fas fa-expand"></i>';
+        });
+        chatPopoutBtn.addEventListener('click', () => window.open(window.location.pathname + '?view=chat', '_blank', 'width=800,height=900'));
+        logPopoutBtn.addEventListener('click', () => window.open(window.location.pathname + '?view=logs', '_blank', 'width=800,height=900'));
+        toggleToolsBtn.addEventListener('click', () => {
+            document.body.classList.toggle('hide-tools');
+            const isHidden = document.body.classList.contains('hide-tools');
+            toggleToolsBtn.textContent = `TOOLS: ${isHidden ? 'OFF' : 'ON'}`;
+            toggleToolsBtn.classList.toggle('text-slate-500', !isHidden);
+            toggleToolsBtn.classList.toggle('text-blue-500', isHidden);
+        });
+        formatSelect.addEventListener('change', async () => {
+            const ollamaId = ollamaSelect.value;
+            if (ollamaId && currentUser.role === 'admin') {
+                await authenticatedFetch(`/ollama/${ollamaId}/format?format=${formatSelect.value}`, { method: 'POST' });
+            }
         });
 
-        startEventStream();
-        fetchHosts();
-        fetchOllamaInstances().then(() => fetchModels().then(() => fetchSettings()));
+        // Start
+        initializeApp();
     </script>
 </body>
 </html>

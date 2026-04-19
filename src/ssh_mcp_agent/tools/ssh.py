@@ -1,5 +1,4 @@
 import paramiko
-import os
 from typing import Optional, Tuple
 from dataclasses import dataclass
 
@@ -35,6 +34,9 @@ class SSHClient:
         
         if self.config.password:
             connect_kwargs["password"] = self.config.password
+            # If password is explicitly provided, avoid trying agent/keys to prevent "too many attempts" errors
+            connect_kwargs["allow_agent"] = False
+            connect_kwargs["look_for_keys"] = False
         if self.config.key_filename:
             connect_kwargs["key_filename"] = self.config.key_filename
             

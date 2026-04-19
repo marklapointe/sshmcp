@@ -175,11 +175,16 @@ MCP uses standard JSON-RPC 2.0 error codes:
 To ensure scalability and security:
 1.  **Multiple DB Backends**: The `HostsManager` uses SQLAlchemy to support **SQLite** (default) and **MariaDB/MySQL**.
 2.  **No Clear-text Secrets**: The system is designed to NEVER store passwords in the database or on disk.
-3.  **In-Memory Session Vault**: We use a dedicated, in-memory vault to store credentials for the duration of your web session.
-4.  **Auto-Migration**: On first run, the system automatically migrates any existing `hosts.json` file into your configured database.
-5.  **Isolated Credential Prompting**: When the agent requires a password, the Web UI provides an isolated prompt.
-6.  **Identifier-based Access**: The LLM only interacts with host identifiers. It never sees or dictates sensitive credentials.
-7.  **Verification Tool**: The `ssh_check_config` tool allows the LLM to verify if a host is ready for connection before attempting operations.
+3.  **Authentication & Roles**: A JWT-based login system manages access. Default credentials are `admin:admin`.
+    *   **Admin**: Can manage hosts, Ollama instances, and global settings.
+    *   **User**: Can view and use pre-populated hosts but cannot modify configurations.
+4.  **Persistent Chat History**: All conversations and tool execution logs are saved to the database, allowing you to resume sessions seamlessly.
+5.  **WebSocket Integration**: The Web UI uses WebSockets for efficient, real-time streaming of tool calls and agent responses.
+6.  **In-Memory Session Vault**: We use a dedicated, in-memory vault to store SSH credentials for the duration of your web session.
+7.  **Auto-Migration**: On first run, the system automatically migrates any existing `hosts.json` file into your configured database.
+8.  **Isolated Credential Prompting**: When the agent requires a password, the Web UI provides an isolated prompt.
+9.  **Identifier-based Access**: The LLM only interacts with host identifiers. It never sees or dictates sensitive credentials.
+10. **Verification Tool**: The `ssh_check_config` tool allows the LLM to verify if a host is ready for connection before attempting operations.
 
 ---
 
@@ -276,15 +281,13 @@ The agent looks for `sshagent.conf` in the following order:
 #### B. Example Config (`sshagent.conf`)
 ```json
 {
-  "ollama_host": "http://localhost:11434",
-  "ollama_model": "llama3.2",
-  "database_url": "sqlite:///data/hosts.db"
+  "database_url": "sqlite:///data/hosts.db",
+  "ssh_password": "optional_global_password"
 }
 ```
 
-*   **SQLite (Default)**: Use `sqlite:///data/hosts.db`. The `data/` directory will be created automatically.
-*   **MariaDB/MySQL**: Use `mysql+pymysql://user:password@host/dbname`. 
-*   **External Example**: See `sshagent.conf.example` for a MariaDB/MySQL template.
+*   **Database URL**: Specifies the connection string for the database (SQLite, MySQL, MariaDB).
+*   **Ollama Instances**: All Ollama instance configurations (host URL, default model) are now stored in the database and can be managed via the Web UI.
 
 #### C. Database Security
 *   **Data Directory**: The `./data/` directory is automatically excluded from version control via `.gitignore`.

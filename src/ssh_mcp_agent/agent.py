@@ -8,7 +8,6 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from rich.console import Console
 from rich.panel import Panel
-from rich.live import Live
 from rich.markdown import Markdown
 
 from .llm.client import OllamaClient, ToolCallingFormat, LLMResponse
@@ -21,7 +20,7 @@ class SSHMCPAgent:
     """
     The orchestrator that connects the LLM Client to the MCP Server.
     """
-    def __init__(self, model: Optional[str] = None, format: str = "auto", log_callback=None, env_overrides: Dict[str, str] = None, config_path: Optional[str] = None, system_message: Optional[str] = None, ollama_host: Optional[str] = None):
+    def __init__(self, model: Optional[str] = None, format: str = "auto", log_callback=None, env_overrides: Dict[str, str] = None, config_path: Optional[str] = None, system_message: Optional[str] = None, ollama_host: Optional[str] = None, initial_messages: Optional[List[Dict[str, str]]] = None):
         self.config_manager = ConfigManager(config_path)
         self.hosts_manager = HostsManager(self.config_manager.settings.database_url, config_path)
         
@@ -39,9 +38,39 @@ class SSHMCPAgent:
             format=ToolCallingFormat(format),
             host=actual_host
         )
-        self.messages: List[Dict[str, str]] = []
+        self.messages: List[Dict[str, str]] = initial_messages or []
         if system_message:
-            self.messages.append({"role": "system", "content": system_message})
+            # Update or insert system message
+            sys_msg_idx = -1
+            for i, m in enumerate(self.messages):
+                if m.get("role") == "system":
+                    sys_msg_idx = i
+                    break
+            
+            # Multi-shot examples for better tool usage
+            examples = """
+Examples of interaction:
+
+User: list files in /etc
+Assistant: I will list the files in /etc using the ssh_execute command.
+[Tool Call: ssh_execute(command="ls /etc")]
+Tool Result: fstab
+passwd
+group
+Assistant: The files in /etc are: fstab, passwd, and group.
+
+User: what is the cpu usage?
+Assistant: I will check the CPU usage using the top command.
+[Tool Call: ssh_execute(command="top -bn1 | grep 'Cpu(s)'")]
+Tool Result: %Cpu(s):  5.0 us,  2.0 sy,  0.0 ni, 93.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+Assistant: The CPU usage is currently 5% user and 2% system, with 93% idle time.
+"""
+            full_system_message = f"{system_message}\n\n{examples}"
+
+            if sys_msg_idx != -1:
+                self.messages[sys_msg_idx]["content"] = full_system_message
+            else:
+                self.messages.insert(0, {"role": "system", "content": full_system_message})
             
         self.log_callback = log_callback
         
@@ -61,9 +90,17 @@ class SSHMCPAgent:
             env=env
         )
 
+    def update_env(self, env_overrides: Dict[str, str]):
+        """Update environment variables for the MCP server process."""
+        if env_overrides:
+            self.server_params.env.update(env_overrides)
+
     async def run(self, query: str):
         """Main interaction loop."""
-        self.messages.append({"role": "user", "content": query})
+        # De-duplicate if the same query is sent again (e.g. after auth fix)
+        last_user_msg = next((m for m in reversed(self.messages) if m.get("role") == "user"), None)
+        if not last_user_msg or last_user_msg.get("content") != query:
+            self.messages.append({"role": "user", "content": query})
         
         async with stdio_client(self.server_params) as (read, write):
             async with ClientSession(read, write) as session:
@@ -92,9 +129,14 @@ class SSHMCPAgent:
                     with console.status("[bold green]Thinking..."):
                         response = await self.llm.chat(self.messages, ollama_tools)
 
+                    if response.detected_format and self.log_callback:
+                        await self.log_callback({"type": "detected_format", "format": response.detected_format})
+
                     if response.content:
                         console.print(Panel(Markdown(response.content), title="Agent"))
                         self.messages.append({"role": "assistant", "content": response.content})
+                        if self.log_callback:
+                            await self.log_callback({"type": "assistant_message", "content": response.content})
 
                     if not response.tool_calls:
                         break
